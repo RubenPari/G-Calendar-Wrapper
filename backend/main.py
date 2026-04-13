@@ -46,7 +46,7 @@ CLIENT_CONFIG = {
 }
 
 SESSIONS: Dict[str, Dict] = {}
-OAUTH_STATES: Dict[str, bool] = {}
+OAUTH_STATE_CODE_VERIFIERS: Dict[str, str] = {}
 
 
 class EventBase(BaseModel):
@@ -156,18 +156,27 @@ async def login():
     authorization_url, state = flow.authorization_url(
         access_type="offline", include_granted_scopes="true"
     )
-    OAUTH_STATES[state] = True
+    if not flow.code_verifier:
+        raise HTTPException(
+            status_code=500, detail="Failed to initialize PKCE verifier"
+        )
+    OAUTH_STATE_CODE_VERIFIERS[state] = flow.code_verifier
     return RedirectResponse(authorization_url)
 
 
 @app.get("/auth/callback")
 async def callback(code: str, state: Optional[str] = None):
-    if state and state not in OAUTH_STATES:
+    if not state:
+        raise HTTPException(status_code=400, detail="Missing OAuth state")
+
+    code_verifier = OAUTH_STATE_CODE_VERIFIERS.get(state)
+    if not code_verifier:
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
     flow = Flow.from_client_config(
         CLIENT_CONFIG, scopes=SCOPES, redirect_uri=redirect_uri
     )
+    flow.code_verifier = code_verifier
 
     try:
         flow.fetch_token(code=code)
@@ -184,10 +193,10 @@ async def callback(code: str, state: Optional[str] = None):
 
         redirect = RedirectResponse(f"{frontend_url}/?auth=success")
         redirect.set_cookie("session_id", session_id, httponly=True, samesite="lax")
-        if state:
-            OAUTH_STATES.pop(state, None)
+        OAUTH_STATE_CODE_VERIFIERS.pop(state, None)
         return redirect
     except Exception as exc:
+        OAUTH_STATE_CODE_VERIFIERS.pop(state, None)
         raise HTTPException(
             status_code=400, detail=f"Failed to fetch token: {str(exc)}"
         )
