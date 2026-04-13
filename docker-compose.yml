@@ -1,0 +1,23 @@
+services:
+  backend:
+    image: python:3.12-slim
+    working_dir: /app
+    command: sh -c "pip install --no-cache-dir fastapi uvicorn python-dotenv google-auth-oauthlib google-api-python-client && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend:/app
+    ports:
+      - '8000:8000'
+
+  frontend:
+    image: node:22
+    working_dir: /app
+    command: sh -c "npm install && npm run start -- --host 0.0.0.0 --port 4200"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - '4200:4200'
+    depends_on:
+      - backend
